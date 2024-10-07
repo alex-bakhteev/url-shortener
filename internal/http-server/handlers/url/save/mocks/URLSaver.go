@@ -10,7 +10,7 @@ type URLSaver struct {
 }
 
 // SaveURL provides a mock function with given fields: urlToSave, alias
-func (_m *URLSaver) SaveURL(urlToSave string, alias string) (int64, error) {
+func (_m *URLSaver) SaveURL(urlToSave string, alias string, userID string) (int64, error) {
 	ret := _m.Called(urlToSave, alias)
 
 	var r0 int64

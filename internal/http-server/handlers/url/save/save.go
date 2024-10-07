@@ -1,6 +1,7 @@
 package save
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -17,9 +18,8 @@ import (
 )
 
 type Request struct {
-	URL    string `json:"url" validate:"required,url"`
-	Alias  string `json:"alias,omitempty"`
-	UserID string `json:"user_id" validate:"required"`
+	URL   string `json:"url" validate:"required,url"`
+	Alias string `json:"alias,omitempty"`
 }
 
 type Response struct {
@@ -32,12 +32,13 @@ const aliasLength = 6
 
 //go:generate go run github.com/vektra/mockery/v2@v2.28.2 --name=URLSaver
 type URLSaver interface {
-	SaveURL(urlToSave string, alias string, userID string) (int64, error)
+	SaveURL(ctx context.Context, log *slog.Logger, urlToSave, alias string, userID int64) error
+	GetUserByNickname(ctx context.Context, log *slog.Logger, nickname string) (int64, string, error)
 }
 
 func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		const op = "handlers.url.save.New"
+		const op = "handlers.user.register.New"
 
 		log := log.With(
 			slog.String("op", op),
@@ -80,9 +81,22 @@ func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 		if alias == "" {
 			alias = random.NewRandomString(aliasLength)
 		}
+		nickname := r.Context().Value("nickname").(string)
 
-		id, err := urlSaver.SaveURL(req.URL, alias, req.UserID)
-		if errors.Is(err, storage.ErrURLExists) {
+		if nickname == "" || alias == "" {
+			log.Error("params is empty")
+			render.JSON(w, r, resp.Error("empty request"))
+			return
+		}
+		userID, _, errGetUser := urlSaver.GetUserByNickname(r.Context(), log, nickname)
+		if errGetUser != nil {
+			log.Error("failed to get user by nickname", sl.Err(errGetUser))
+			render.JSON(w, r, resp.Error(errGetUser.Error()))
+			return
+		}
+
+		errSaveURL := urlSaver.SaveURL(r.Context(), log, req.URL, alias, userID)
+		if errors.Is(errSaveURL, storage.ErrURLExists) {
 			log.Info("url already exists", slog.String("url", req.URL))
 
 			render.JSON(w, r, resp.Error("url already exists"))
@@ -92,12 +106,12 @@ func New(log *slog.Logger, urlSaver URLSaver) http.HandlerFunc {
 		if err != nil {
 			log.Error("failed to add url", sl.Err(err))
 
-			render.JSON(w, r, resp.Error("failed to add url"))
+			render.JSON(w, r, resp.Error(err.Error()))
 
 			return
 		}
 
-		log.Info("url added", slog.Int64("id", id))
+		log.Info("url added")
 
 		responseOK(w, r, alias)
 	}

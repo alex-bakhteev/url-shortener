@@ -2,21 +2,25 @@ package main
 
 import (
 	"context"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"golang.org/x/exp/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"golang.org/x/exp/slog"
+	deleteURL "url-shortener/internal/http-server/handlers/url/delete"
+	"url-shortener/internal/http-server/handlers/url/redirect"
+	"url-shortener/internal/http-server/handlers/url/save"
+	deleteUser "url-shortener/internal/http-server/handlers/user/delete"
+	"url-shortener/internal/http-server/handlers/user/login"
+	"url-shortener/internal/storage/mongodb"
+	"url-shortener/internal/storage/multiStorage"
 
 	"url-shortener/internal/config"
-	"url-shortener/internal/http-server/handlers/redirect"
-	"url-shortener/internal/http-server/handlers/url/save"
-	//"url-shortener/internal/http-server/handlers/auth/login"
-	//"url-shortener/internal/http-server/handlers/auth/signup"
+	"url-shortener/internal/http-server/handlers/user/register"
+	"url-shortener/internal/http-server/middleware/auth"
 	mwLogger "url-shortener/internal/http-server/middleware/logger"
 	"url-shortener/internal/lib/logger/handlers/slogpretty"
 	"url-shortener/internal/lib/logger/sl"
@@ -31,38 +35,46 @@ const (
 
 func main() {
 	cfg := config.MustLoad()
-
 	log := setupLogger(cfg.Env)
-
 	log.Info(
 		"starting url-shortener",
 		slog.String("env", cfg.Env),
 	)
 	log.Debug("debug messages are enabled")
 
-	storage, err := sqlite.New(cfg.StoragePath)
+	// Инициализация MongoDB
+	mongoDB, err := mongodb.NewClient(context.Background(), cfg.Host, cfg.Port, cfg.Username, cfg.Password, cfg.Database, cfg.AuthDB, cfg.URI)
 	if err != nil {
-		log.Error("failed to init storage", sl.Err(err))
+		log.Error("failed to init MongoDB", sl.Err(err))
 		os.Exit(1)
 	}
+
+	// Инициализация SQLite
+	sqliteDB, err := sqlite.New(cfg.StoragePath)
+	if err != nil {
+		log.Error("failed to init SQLite", sl.Err(err))
+		os.Exit(1)
+	}
+
+	multiStorage := multiStorage.NewDualStorage(sqliteDB, mongoDB)
 
 	router := chi.NewRouter()
 
 	router.Use(middleware.RequestID)
+	router.Use(middleware.RealIP)
 	router.Use(middleware.Logger)
 	router.Use(mwLogger.New(log))
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.URLFormat)
 
-	router.Route("/url", func(r chi.Router) {
-
-		r.Post("/", save.New(log, storage))
-		//r.Post("/", signup.New(log, storage))
-		//r.Post("/", login.New(log, storage))
-		// TODO: add DELETE /url/{id}
+	router.Route("/", func(r chi.Router) {
+		r.Post("/register", register.New(log, multiStorage))
+		r.Post("/login", login.New(log, multiStorage))
+		r.Post("/url/save", auth.TokenAuthMiddleware(save.New(log, multiStorage)))
+		r.Delete("/url/{alias}", auth.TokenAuthMiddleware(deleteURL.New(log, multiStorage)))
+		r.Delete("/user/{nickname}", auth.TokenAuthMiddleware(deleteUser.New(log, multiStorage)))
 	})
-
-	router.Get("/{alias}", redirect.New(log, storage))
+	router.Get("/redirect/{alias}", auth.TokenAuthMiddleware(redirect.New(log, multiStorage)))
 
 	log.Info("starting server", slog.String("address", cfg.Address))
 

@@ -1,24 +1,23 @@
 package redirect
 
 import (
-	"errors"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 	"golang.org/x/exp/slog"
+	"golang.org/x/net/context"
+	"net/http"
 
 	resp "url-shortener/internal/lib/api/response"
 	"url-shortener/internal/lib/logger/sl"
-	"url-shortener/internal/storage"
 )
 
 // URLGetter is an interface for getting url by alias.
 //
 //go:generate go run github.com/vektra/mockery/v2@v2.28.2 --name=URLGetter
 type URLGetter interface {
-	GetURL(alias string) (string, error)
+	GetURL(ctx context.Context, log *slog.Logger, alias string, userID int64) (string, error)
+	GetUserByNickname(ctx context.Context, log *slog.Logger, nickname string) (int64, string, error)
 }
 
 func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
@@ -31,27 +30,25 @@ func New(log *slog.Logger, urlGetter URLGetter) http.HandlerFunc {
 		)
 
 		alias := chi.URLParam(r, "alias")
-		if alias == "" {
-			log.Info("alias is empty")
+		nickname := r.Context().Value("nickname").(string)
 
-			render.JSON(w, r, resp.Error("invalid request"))
-
+		if nickname == "" || alias == "" {
+			log.Error("params is empty")
+			render.JSON(w, r, resp.Error("empty request"))
 			return
 		}
 
-		resURL, err := urlGetter.GetURL(alias)
-		if errors.Is(err, storage.ErrURLNotFound) {
-			log.Info("url not found", "alias", alias)
-
-			render.JSON(w, r, resp.Error("not found"))
-
+		userID, _, errGetUser := urlGetter.GetUserByNickname(r.Context(), log, nickname)
+		if errGetUser != nil {
+			log.Error("failed to get user by nickname", sl.Err(errGetUser))
+			render.JSON(w, r, resp.Error(errGetUser.Error()))
 			return
 		}
-		if err != nil {
-			log.Error("failed to get url", sl.Err(err))
 
-			render.JSON(w, r, resp.Error("internal error"))
-
+		resURL, errGetURL := urlGetter.GetURL(r.Context(), log, alias, userID)
+		if errGetURL != nil {
+			log.Error("failed to get url", sl.Err(errGetURL))
+			render.JSON(w, r, resp.Error(errGetURL.Error()))
 			return
 		}
 

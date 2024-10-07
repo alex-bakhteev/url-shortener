@@ -3,13 +3,13 @@ package redirect_test
 import (
 	"net/http/httptest"
 	"testing"
+	"url-shortener/internal/http-server/handlers/url/redirect"
+	"url-shortener/internal/http-server/handlers/url/redirect/mocks"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"url-shortener/internal/http-server/handlers/redirect"
-	"url-shortener/internal/http-server/handlers/redirect/mocks"
 	"url-shortener/internal/lib/api"
 	"url-shortener/internal/lib/logger/handlers/slogdiscard"
 )
