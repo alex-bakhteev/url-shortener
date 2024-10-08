@@ -31,7 +31,7 @@ jobs:
       - name: Decrypt prod.yaml
         run: |
           echo "${{ secrets.PROD_YAML }}" > prod.yaml.enc
-          openssl enc -aes-256-cbc -d -in prod.yaml.enc -out ${{ env.CONFIG_PATH }} -k my_password
+          openssl enc -aes-256-cbc -d -in prod.yaml.enc -out ${{ env.CONFIG_PATH }} -k password
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
