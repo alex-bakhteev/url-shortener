@@ -2,3 +2,4 @@ internal/storage/storage.db
 config/
 .idea/
 ToDo.txt
+prod.yaml.enc

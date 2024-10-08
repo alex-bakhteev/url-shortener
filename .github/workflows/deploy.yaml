@@ -28,6 +28,10 @@ jobs:
             echo "error: Tag '${{ github.event.inputs.tag }}' not found"
             exit 1
           fi
+      - name: Decrypt prod.yaml
+          run: |
+            echo "${{ secrets.PROD_YAML }}" > prod.yaml.enc
+            openssl enc -aes-256-cbc -d -in prod.yaml.enc -out ${{ env.CONFIG_PATH }} -k my_password
       - name: Set up Go
         uses: actions/setup-go@v2
         with:
